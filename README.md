@@ -1,24 +1,45 @@
+# FsHttp
 
-FsHttp
-======
+[![Build & Tests](https://github.com/schlenkr/FsHttp/actions/workflows/build-and-test.yml/badge.svg?branch=master)](https://github.com/schlenkr/FsHttp/actions/workflows/build-and-test.yml)
+[![NuGet](https://img.shields.io/nuget/v/FsHttp.svg?style=flat-square&logo=nuget)](https://www.nuget.org/packages/FsHttp)
+[![NuGet Downloads](https://img.shields.io/nuget/dt/FsHttp.svg?style=flat-square)](https://www.nuget.org/packages/FsHttp)
 
-FsHttp is a .Net HTTP client library for C# and F#. It aims for describing and executing HTTP requests in convenient ways that can be used in production and interactive environments.
+<img align="right" width="200" alt='logo' src='https://raw.githubusercontent.com/schlenkr/FsHttp/master/docs/img/logo_big.png' />
 
-**FsHttp** is authored by [@ronaldschlenker](https://github.com/ronaldschlenker). Feel free to leave a message.
+FsHttp is a "hackable HTTP client" that offers a legible style for the basics while still affording full access to the underlying HTTP representations for covering unusual cases. It's the best of both worlds: **Convenience and Flexibility**.
 
-[![NuGet Badge](http://img.shields.io/nuget/v/FsHttp.svg?style=flat)](https://www.nuget.org/packages/FsHttp) ![build status](https://github.com/fsprojects/FsHttp/actions/workflows/push-master_pull-request.yml/badge.svg?event=push)
+* Use it as a replacement for `.http` files, *VSCode's REST client*, *Postman*, and other tools as an **interactive and programmable playground** for HTTP requests.
+* Usable as a **production-ready HTTP client** for applications powered by .NET (C#, VB, F#).
 
+👍 Postman? ❤️ FsHttp! https://youtu.be/F508wQu7ET0
 
-Documentation
--------------
+---
 
-Please see [FsHttp Documentation](https://fsprojects.github.io/FsHttp) site for a detailed documentation.
+## FsHttp ❤️ PXL-Clock
 
+Allow us a bit of advertising for our PXL-Clock! It's a fun device, made with ❤️ - and it's programmable almost as easy as you write requests with FsHttp :)
 
-A Simple Example
-----------------
+<p align="center">
+  <img width="340" alt="image" src="https://github.com/user-attachments/assets/4c898f7e-56ae-4a8b-be34-464ad83a5ffb" />
+</p>
 
-An example in F#:
+Find out more info on the [PXL-Clock Discord Server](https://discord.gg/KDbVdKQh5j) or check out the [PXL-Clock Repo on GitHub](https://github.com/CuminAndPotato/PXL-Clock).
+
+<p align="center">
+  <h3>Join the PXL-Clock Community on Discord</h3>
+  <a href="https://discord.gg/KDbVdKQh5j">
+    <img src="https://img.shields.io/badge/Discord-Join%20Server-blue?style=flat-square&logo=discord" alt="Join Our Discord">
+  </a>
+</p>
+
+---
+
+## Documentation
+
+* 📖 Please see [FsHttp Documentation](https://schlenkr.github.io/FsHttp) site for detailed documentation.
+* 🧪 In addition, have a look at the [Integration Tests](https://github.com/schlenkr/FsHttp/tree/master/src/Tests) that show various library details.
+
+### F# syntax example
 
 ```fsharp
 #r "nuget: FsHttp"
@@ -38,14 +59,15 @@ http {
 |> Request.send
 ```
 
-An example in C#:
+### C# syntax example
 
 ```csharp
 #r "nuget: FsHttp"
 
-using FsHttp.CSharp;
+using FsHttp;
 
-await "https://reqres.in/api/users".Post()
+await Http
+    .Post("https://reqres.in/api/users")
     .CacheControl("no-cache")
     .Body()
     .JsonSerialize(new
@@ -57,38 +79,32 @@ await "https://reqres.in/api/users".Post()
     .SendAsync();
 ```
 
+### Release Notes / Migrating to new versions
 
-Migrating to new versions
----
+* See https://www.nuget.org/packages/FsHttp#release-body-tab
+* For different upgrade paths, please read the [Migrations docs section](https://schlenkr.github.io/FsHttp/Release_Notes.html).
 
-For different upgrade paths, please read the [Migrations section](https://fsprojects.github.io/FsHttp/Migrations.html) in the docu.
+## Building
 
+**.Net SDK:**
 
-Building
---------
+You need to have a recent .NET SDK installed, which is specified in `./global.json`.
 
-You need to have the latest .Net 5 SDK installed.
+**Build Tasks**
 
-### Building binaries, publish, and test
+There is a F# build script (`./build.fsx`) that can be used to perform several build tasks from command line.
 
-There is a F# script that can be used to perform several build tasks from command line. It can be executed in this way:
+For common tasks, there are bash scripts located in the repo root:
 
-`PS> dotnet fsi .\build.fsx [task]`
+* `./test.sh`: Runs all tests (sources in `./src/Tests`).
+  * You can pass args to this task. E.g. for executing only some tests:
+    `./test.sh --filter Name~'Response Decompression'`
+* `./docu.sh`: Rebuilds the FsHttp documentation site (sources in `./src/docs`).
+* `./docu-watch.sh`: Run it if you are working on the documentation sources, and want to see the result in a browser.
+* `./publish.sh`: Publishes all packages (FsHttp and it's integration packages for Newtonsoft and FSharp.Data) to NuGet.
+  * Always have a look at `./src/Directory.Build.props` and keep the file up-to-date.
 
-Common tasks are:
+## Credits
 
-* build
-* test
-* publish
-
-### Building the documentation
-
-The documentation in `./docs` is auto-generated from the files in `./src/Docu`. In order to build them, run:
-
-`PS> .\docu.ps1`
-
-
-Credits
--------
-
-Parts of the code is taken from the [HTTP utilities of FSharp.Data](https://fsprojects.github.io/FSharp.Data/library/Http.html).
+* Parts of the code were taken from the [HTTP utilities of FSharp.Data](https://fsprojects.github.io/FSharp.Data/library/Http.html).
+* Credits to all critics, supporters, contributors, promoters, users, and friends.

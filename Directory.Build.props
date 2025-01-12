@@ -1,0 +1,181 @@
+<Project>
+
+  <PropertyGroup>
+    <Version>15.0.1</Version>
+    
+    <Authors>Ronald Schlenker</Authors>
+    <Copyright>Copyright 2024 Ronald Schlenker</Copyright>
+    <PackageTags>http rest HttpClient fetch curl f# c# fSharp</PackageTags>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <PackageIcon>logo_small.png</PackageIcon>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/fsprojects/FsHttp</RepositoryUrl>
+    
+    <FsDocsLicenseLink>https://github.com/fsprojects/FsHttp/blob/master/LICENSE</FsDocsLicenseLink>
+    <FsDocsReleaseNotesLink>https://www.nuget.org/packages/FsHttp#release-body-tab</FsDocsReleaseNotesLink>
+
+    <PackageReleaseNotes>
+
+      **************************************************************
+      
+          +---------+
+          |         |    PXL-JAM 2024
+          |   PXL   |      - github.com/CuminAndPotato/PXL-JAM
+          |  CLOCK  |      - WIN a PXL-Clock MK1
+          |         |      - until 8th of January 2025
+          +---------+
+      
+      **************************************************************
+
+
+      15.0.1
+      - Added PXK-Clock Promo Message on first FSI evaluation (when logs are enabled)
+
+      15.0.0
+      - Added 'enumerable' and 'enumerablePart' as body content functions
+      - Removed Utf8StringBufferingStream
+
+      14.5.2
+      - Added PXK-Clock Promo Message on first FSI evaluation (when logs are enabled)
+
+      14.5.1
+      - Fixed untracked bug: using config_useBaseUrl as http template won't crash when printing unfinished requests
+
+      14.5.0
+      - Added 'useBaseUrl' and 'transformUrl' to Config for better composability
+      - Fixed some extension methods
+
+      14.4.2
+      - Thanks @bartelink
+        Pinned FSharp.Core to 5.0.2 in all library projects
+        Removed net7.0, net8.0 TFM-specific builds
+        Lots of other cool stability-oriented stuff and detail-work
+
+      14.4.1
+      - Fixed missing explicit dependency on FSharp.Core
+
+      14.4.0
+      - Fixed pre-configured requests
+
+      14.3.0
+      - Added `GetList` JsonElement extension
+      
+      14.2.0
+      - (Breaking change) Separated Config and PrintHint (...and many more things in these domains)
+
+      14.1.0
+      - (Breaking change) Renamed `Extensions.To...Enumerable` to `Extensions.To...Seq`
+      - Added `toJsonList...` overloads
+
+      14.0.0
+      - (Breaking change) Renamed types in Domain:
+        BodyContent -> SinglepartContent
+        RequestContent -> BodyContent
+        FsHttpUrl -> FsHttpTarget
+      - (Breaking change) FsHttpUrl (now FsHttpTarget) and Header restructured: method, address and queryParams are now part of the FsHttpTarget type.
+      - Added `headerTransformers` to Config for better composability
+
+      13.3.0
+      - (Breaking change) All `Response._TAsync` functions (task based) in F# require a CancellationToken now.
+      - (Breaking change) Extension methods rework
+      - (Breaking change) There's no more StartingContext, which means:
+        we give up a little bit of safety here, for the sake of pre-configuring HTTP requests
+        without specifying the URL. This is a trade-off we are willing to take.
+
+      12.2.0
+      - added HttpMethods for better composability
+
+      12.1.0
+      - net8.0
+
+      12.0.0
+      - #137 / #102: Change the type for FsHttpUrl.additionalQueryParams from obj to string
+      - Removed (auto opened) Async.await and Task.map/await
+      - Moved (auto opened) Async.map to FsHttp.Helper.Async.map
+
+      11.1.0
+      - #130 / #105: Add method for user-supplied cancellation token
+
+      11.0.0
+      - #121 (Breaking change): Turning off debug logs in FSI (breaking change in signature / namespace)
+      - #124: Support Repeating Query Parameters (thanks @DaveJohnson8080)
+      - #106 (Breaking change): Allow filename metadata with other "parts" (thanks @dawedawe)
+      - Breaking change: ContentTypeForPart custom operations should come after part definition
+      - #104 (Breaking change): Automatic GZip response decompression per Default
+      - Other breaking changes:
+        - Removed `ContentTypeWithEncoding` and used optional `charset` parameter in `ContentType` overloads.
+        - Renamed `byteArray` to `binary` in Dsl, DslCE and CSharp.
+        - Caution (!!): Renamed `stringPart` to `textPart` and changed argument order for `name` and `value` in Dsl and DslCE.
+        - Restructured types in Domain
+        - `Helper` is a module instead of a namespace, and some things were moved.
+        - All transformers in config are a list of transformers instead of a single item.
+        - Removed `setHttpClient`. Please use `setHttpClientFactory` instead.
+        - `setHttpClientFactory` takes a `Config` as input argument.
+
+      -----------------------------
+      -- Old release notes below --
+      -----------------------------
+      
+      7.0.0
+      - #92: `expect` and `assert` pass through the original response instead of unit.
+
+      8.0.0
+      - #93 (thanks @drhumlen): Changed content type 'text/json' to 'application/json'.
+      - Http modules are always AutoOpen in both Dsl and DslCE.
+      - No extra modules for builder methods.
+
+      8.0.1
+      - #89: No more blocking requests using net5 with FSI.
+
+      9.0.0 / 9.0.1
+      - Redefined builders (see README.md).
+      - Many breaking changes (see "Migrations" sections in the docu).
+
+      9.0.2
+      - Added JSON toArray functions
+      - Fixed #99: Response.saveFile should create the directory if not present.
+
+      9.0.3
+      - Supporting netstandard2.1 again.
+
+      9.0.4
+      - Referenced lowest possible FSharp.Core and other referenced packages version.
+
+      9.0.5
+      - Support for netstandard2.0.
+      - New 'FsHttp.NewtonsoftJson' integration package.
+      - More JSON functions and defaults config.
+
+      9.0.6
+      - #100 - Removed FSI print messages.
+
+      9.1.0
+      - Fixed naming inconsistency for 'Response.deserialize...' functions.
+      - More C# JSON functions.
+
+      9.1.1
+      - Fix: Using GlobalConfig.Json.defaultJsonSerializerOptions as default for jsonSerialize.
+
+      9.1.2
+      - Fixed #103: FSI response printing and initialization doesn't work out of the box anymore.
+
+      10.0.0
+      - .Net 7 support (thank you @Samuel-Dufour)
+      - Breaking change: Corrected typo "guessMineTypeFromPath" -> "guessMimeTypeFromPath"
+      - Breaking change: Module 'Helper', 'HelperInternal' and 'HelperAutos' refactored
+      - #115: Remove print messages when downloading streams
+      - Printing: Separate print functions for response and request via Request.print and Response.print
+      - Printing: Default request (IToRequest) printing in FSI
+      - Removed net5.0 targets in all projects
+      - PrintHint.printDebugMessages: Moved to FsHttp.Helper.Fsi.logDebugMessages as a global switch
+      - #113 - Config.timeoutInSeconds bug
+
+      10.1.0
+      - #117: Escape string for query params values (by @maciej-izak - thank you)
+      (!!) This can be seen as breaking change.
+      - #112: Allow to add (multiple) headers (by @Samuel-Dufour - thank you)
+    </PackageReleaseNotes>
+  </PropertyGroup>
+
+</Project>

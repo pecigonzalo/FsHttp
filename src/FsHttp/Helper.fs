@@ -1,26 +1,34 @@
-namespace FsHttp.Helper
+module FsHttp.Helper
 
 open System
 open System.IO
 open System.Text
+open System.Net.Http.Headers
 open System.Runtime.InteropServices
 open FsHttp
 
+[<RequireQualifiedAccess>]
 module Encoding =
     let base64 = Encoding.GetEncoding("ISO-8859-1")
 
-[<AutoOpen>]
-module StringBuilderExtensions =
-    type StringBuilder with
-        member sb.append(s: string) = sb.Append s |> ignore
-        member sb.appendLine(s: string) = sb.AppendLine s |> ignore
-        member sb.newLine() = sb.appendLine ""
+[<RequireQualifiedAccess>]
+module Async =
+    let map f x =
+        async {
+            let! x = x
+            return f x
+        }
 
-        member sb.appendSection(s: string) =
-            sb.appendLine s
+type StringBuilder with
+    member sb.append(s: string) = sb.Append s |> ignore
+    member sb.appendLine(s: string) = sb.AppendLine s |> ignore
+    member sb.newLine() = sb.appendLine ""
 
-            String([ 0 .. s.Length ] |> List.map (fun _ -> '-') |> List.toArray)
-            |> sb.appendLine
+    member sb.appendSection(s: string) =
+        sb.appendLine s
+
+        String([ 0 .. s.Length ] |> List.map (fun _ -> '-') |> List.toArray)
+        |> sb.appendLine
 
 [<RequireQualifiedAccess>]
 module Map =
@@ -58,88 +66,33 @@ module Url =
 
 [<RequireQualifiedAccess>]
 module Stream =
-    // TODO: Inefficient
-    type Utf8StringBufferingStream(baseStream: Stream, readBufferLimit: int option) =
-        inherit Stream()
-        let notSeekable () = failwith "Stream is not seekable."
-        let notWritable () = failwith "Stream is not writable."
-        let readBuffer = ResizeArray<byte>()
-        override _.Flush() = baseStream.Flush()
-
-        override _.Read(buffer, offset, count) =
-            let readCount = baseStream.Read(buffer, offset, count)
-
-            match readCount, readBufferLimit with
-            | 0, _ -> ()
-            | readCount, None -> readBuffer.AddRange(buffer[offset .. readCount - 1])
-            | readCount, Some limit ->
-                let remaining = limit - readBuffer.Count
-                let copyCount = min remaining readCount
-
-                if copyCount > 0 then
-                    readBuffer.AddRange(buffer[offset .. copyCount - 1])
-
-            readCount
-
-        override _.Seek(_, _) = notSeekable ()
-        override _.SetLength(_) = notWritable ()
-        override _.Write(_, _, _) = notWritable ()
-        override _.CanRead = true
-        override _.CanSeek = false
-        override _.CanWrite = false
-        override _.Length = baseStream.Length
-
-        override _.Position
-            with get () = baseStream.Position
-            and set (_) = notSeekable ()
-
-        member _.GetUtf8String() =
-#if NETSTANDARD2_0 || NETSTANDARD2_1
-            let buffer = readBuffer |> Seq.toArray
-#else
-            let buffer = CollectionsMarshal.AsSpan(readBuffer)
-#endif
-            let s = Encoding.UTF8.GetString(buffer).AsSpan()
-
-            if s.Length = 0 then
-                s.ToString()
-            else
-                let s =
-                    if s[s.Length - 1] |> Char.IsHighSurrogate then
-                        s.Slice(0, s.Length - 1)
-                    else
-                        s
-
-                s.ToString()
-
-    let readUtf8StringAsync maxUtf16CharCount (stream: Stream) =
-        let sr = new StreamReader(stream, Encoding.UTF8)
-        let sb = StringBuilder()
-        let charBuffer = Array.zeroCreate<char> (50)
-        let mutable lastCharIsHighSurrogate = false
-
-        let rec read () =
-            async {
-                if sb.Length < maxUtf16CharCount then
-                    let! readCount = sr.ReadAsync(charBuffer, 0, charBuffer.Length) |> Async.AwaitTask
-                    let remaining = maxUtf16CharCount - sb.Length
-                    let copyCount = min remaining readCount
-
-                    if copyCount > 0 then
-                        sb.Append(charBuffer, 0, copyCount) |> ignore
-                        lastCharIsHighSurrogate <- charBuffer[copyCount - 1] |> Char.IsHighSurrogate
-                        do! read ()
-            }
-
+    let readUtf8StringAsync maxLen (stream: Stream) =
+        // we could definitely optimize this
         async {
-            do! read ()
-
-            do
-                sr.Dispose()
-                stream.Dispose()
-
-            return sb.ToString(0, (if lastCharIsHighSurrogate then sb.Length - 1 else sb.Length))
+            use reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks = false, bufferSize = 1024, leaveOpen = true)
+            let sb = StringBuilder()
+            let mutable codePointsRead = 0
+            let buffer = Array.zeroCreate<char> 1 // Buffer to read one character at a time
+            while codePointsRead < maxLen && not reader.EndOfStream do
+                // Read the next character asynchronously
+                let! charsRead = reader.ReadAsync(buffer, 0, 1) |> Async.AwaitTask
+                if charsRead > 0 then
+                    let c = buffer.[0]
+                    sb.Append(c) |> ignore
+                    // Check if the character is a high surrogate
+                    if Char.IsHighSurrogate(c) && not reader.EndOfStream then
+                        // Read the low surrogate asynchronously and append it
+                        let! nextCharsRead = reader.ReadAsync(buffer, 0, 1) |> Async.AwaitTask
+                        if nextCharsRead > 0 then
+                            let nextC = buffer.[0]
+                            sb.Append(nextC) |> ignore
+                    // Increment the code point count
+                    codePointsRead <- codePointsRead + 1
+            return sb.ToString()
         }
+
+    let readUtf8StringTAsync maxLength (stream: Stream) =
+        readUtf8StringAsync maxLength stream |> Async.StartAsTask
 
     let copyToCallbackAsync (target: Stream) callback (source: Stream) =
         async {
@@ -215,22 +168,42 @@ module Stream =
 
     let saveFileTAsync fileName source = saveFileAsync fileName source |> Async.StartAsTask
 
-[<AutoOpen>]
-module FsHttpUrlExtensions =
-    type FsHttpUrl with
-        member this.ToUriString() =
-            let uri = UriBuilder(this.address)
 
-            let queryParamsString =
-                this.additionalQueryParams
-                |> Seq.map (fun (k, v) -> $"""{k}={Uri.EscapeDataString $"{v}"}""")
-                |> String.concat "&"
+type EnumerableStream(source: byte seq) =
+    inherit Stream()
 
-            uri.Query <-
-                match uri.Query, queryParamsString with
-                | "", "" -> ""
-                | s, "" -> s
-                | "", q -> $"?{q}"
-                | s, q -> $"{s}&{q}"
+    let enumerator = source.GetEnumerator()
+    let mutable isDisposed = false
+    let mutable position = 0L
 
-            uri.ToString()
+    override _.CanRead = true
+    override _.CanSeek = false
+    override _.CanWrite = false
+
+    override _.Length = raise (NotSupportedException())
+
+    override _.Position
+        with get() = position
+        and set(_) = raise (NotSupportedException())
+
+    override _.Flush() = ()
+
+    override _.Read(buffer: byte[], offset: int, count: int) =
+        let bytesToRead = Math.Min(count, buffer.Length - int position)
+        if bytesToRead <= 0 then 0
+        else
+            let mutable bytesRead = 0
+            while bytesRead < bytesToRead && enumerator.MoveNext() do
+                buffer.[offset + bytesRead] <- enumerator.Current
+                bytesRead <- bytesRead + 1
+            position <- position + int64 bytesRead
+            bytesRead
+
+    override _.Seek(_: int64, _: SeekOrigin) = raise (NotSupportedException())
+    override _.SetLength(_: int64) = raise (NotSupportedException())
+    override _.Write(_: byte[], _: int, _: int) = raise (NotSupportedException())
+
+    override _.Dispose(disposing: bool) =
+        if not isDisposed then
+            isDisposed <- true
+            enumerator.Dispose()

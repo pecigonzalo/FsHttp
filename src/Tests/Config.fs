@@ -49,10 +49,10 @@ let ``Global config snapshot is used in moment of request creation`` () =
 
     do timeoutEquals r2.config t2
 
-let private serverWithRequestDuration requestTime =
+let private serverWithRequestDuration (requestTime: TimeSpan) =
     GET
     >=> request (fun r ->
-        Thread.Sleep(TimeSpan.FromSeconds requestTime)
+        Thread.Sleep requestTime
         "" |> OK
     )
     |> serve
@@ -79,21 +79,20 @@ let sendRequestWithTimeout timeout =
 
 [<TestCase>]
 let ``Timeout config per request - success expected`` () =
-    use server = serverWithRequestDuration 1.0
+    use server = serverWithRequestDuration (TimeSpan.FromSeconds 1.0)
 
     (sendRequestWithTimeout (Some 20.0)) ()
 
 
 [<TestCase>]
 let ``Timeout config per request - timeout expected`` () =
-    use server = serverWithRequestDuration 10.0
-
+    use server = serverWithRequestDuration (TimeSpan.FromSeconds 10.0)
     sendRequestWithTimeout (Some 1.0) |> should throw typeof<TaskCanceledException>
 
 
 [<TestCase>]
 let ``Timeout config global - success expected`` () =
-    use server = serverWithRequestDuration 1.0
+    use server = serverWithRequestDuration (TimeSpan.FromSeconds 1.0)
 
     GlobalConfig.defaults |> Config.timeoutInSeconds 20.0 |> GlobalConfig.set
 
@@ -102,7 +101,7 @@ let ``Timeout config global - success expected`` () =
 
 [<TestCase>]
 let ``Timeout config global - timeout expected`` () =
-    use server = serverWithRequestDuration 10.0
+    use server = serverWithRequestDuration (TimeSpan.FromSeconds 10.0)
 
     GlobalConfig.defaults |> Config.timeoutInSeconds 20.0 |> GlobalConfig.set
 
@@ -111,3 +110,86 @@ let ``Timeout config global - timeout expected`` () =
     GlobalConfig.defaults |> Config.timeoutInSeconds 1.0 |> GlobalConfig.set
 
     sendRequestWithTimeout None |> should throw typeof<TaskCanceledException>
+
+
+[<TestCase>]
+let ``Cancellation token can be supplied by user`` () =
+    let serverRequestDuration = TimeSpan.FromSeconds 10.0
+    let clientRequestDuration = TimeSpan.FromSeconds 3.0
+    let expectedOverheadTime = TimeSpan.FromSeconds 2.0
+
+    use server = serverWithRequestDuration serverRequestDuration
+
+    (sendRequestWithTimeout None) ()
+
+    use cs = new CancellationTokenSource()
+
+    Thread(fun () ->
+        Thread.Sleep clientRequestDuration
+        cs.Cancel()
+    )
+        .Start()
+
+    let requestStartTime = DateTime.Now
+
+    let mutable wasCancelled = false
+
+    try
+        get (url "") { config_cancellationToken cs.Token } |> Request.send |> ignore
+    with :? TaskCanceledException ->
+        wasCancelled <- true
+
+    let requestDuration = DateTime.Now - requestStartTime
+
+    (requestDuration + expectedOverheadTime < serverRequestDuration)
+    |> should equal true
+
+    wasCancelled |> should equal true
+
+
+let [<TestCase>] ``Pre-Configured Requests``() =
+    let headerName = "X-Custom-Value"
+    let headerValue = "Hallo Welt"
+
+    use server = GET >=> request (header headerName >> OK) |> serve
+
+    let httpSpecial =
+        http {
+            header headerName headerValue
+        }
+
+    let response =
+        httpSpecial {
+            GET (url @"")
+        }
+        |> Request.send
+        |> Response.toText
+    
+    do printfn "RESPONSE: %A" response
+
+    response |> should equal headerValue
+
+
+let [<TestCase>] ``Header Transformer``() =
+    let url = "http://"
+    let urlSuffix1 = "suffix1"
+    let urlSuffix2 = "suffix2"
+
+    let httpSpecial =
+        let transformWith suffix =
+            fun (header: Header) ->
+                let address = (header.target.address |> Option.defaultValue "")
+                { header with target.address = Some $"{address}{suffix}" }
+        http {
+            config_transformHeader (transformWith urlSuffix1)
+            config_transformHeader (transformWith urlSuffix2)
+        }
+
+    httpSpecial {
+        GET url
+    }
+    |> Request.toRequestAndMessage
+    |> fst
+    |> _.header.target.address
+    |> Option.defaultValue ""
+    |> should equal $"{url}{urlSuffix1}{urlSuffix2}"

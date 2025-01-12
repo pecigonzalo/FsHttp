@@ -1,7 +1,9 @@
 using System;
 using System.Threading.Tasks;
-using FsHttp.CSharp;
+
+using FsHttp;
 using FsHttp.Tests;
+
 using NUnit.Framework;
 
 namespace Test.CSharp
@@ -25,7 +27,7 @@ namespace Test.CSharp
                     .SendAsync())
                 .ToTextAsync();
 
-            Assert.AreEqual(Content, response);
+            Assert.That(Content, Is.EqualTo(response));
         }
 
         public record Person(string Name, string Job);
@@ -44,11 +46,11 @@ namespace Test.CSharp
                     .SendAsync())
                 .DeserializeJsonAsync<Person>();
 
-            Assert.AreEqual(jsonObj, response);
+            Assert.That(jsonObj, Is.EqualTo(response));
         }
 
         [Test]
-        public void Configuration()
+        public void FluentConfig()
         {
             const string Content = "Hello World";
 
@@ -59,9 +61,17 @@ namespace Test.CSharp
                     (await Server.url("").Post()
                         .Body()
                         .Text(Content)
-                        .Configure(c => c.Timeout(TimeSpan.FromTicks(1)))
+                        .Config().Timeout(TimeSpan.FromTicks(1))
                         .SendAsync())
                     .ToTextAsync());
+        }
+
+        [Test, Ignore("Compiler-test only")]
+        public void FluentPrintHint()
+        {
+            var request = 
+                Http.Get("http://...")
+                    .Print().HeaderOnly();
         }
     }
 }

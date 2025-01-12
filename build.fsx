@@ -1,4 +1,3 @@
-
 System.Environment.CurrentDirectory <- __SOURCE_DIRECTORY__
 
 #r "nuget: Fake.Core.Process"
@@ -14,7 +13,7 @@ Trace.trace $"Starting script..."
 
 module Properties =
     let nugetServer = "https://api.nuget.org/v3/index.json"
-    let nugetPushEnvVarName = "nuget_push"
+    let nugetPushEnvVarName = "nuget_fshttp"
 
 [<AutoOpen>]
 module Helper =
@@ -27,35 +26,46 @@ module Helper =
     let run targets =
         for t in targets do
             runTarget t
-    
-    type Shell with
-        static member ExecSuccess (cmd: string, ?args: string, ?dir: string) =
-            let res = Shell.Exec(cmd, ?args = args, ?dir = dir)
-            if res <> 0 then failwith $"Shell execute was not successful: {res}" else ()
 
     type Args() =
-        let singleArg = fsi.CommandLineArgs.[1..] |> Array.tryExactlyOne
-        let mutable switches : string list = []
-        member this.hasArg arg =
-            switches <- arg :: switches
-            singleArg |> Option.map (fun a -> a = arg) |> Option.defaultValue false
-        member this.assertArgs() =
-            match singleArg with
-            | None ->
-                let switches = switches |> String.concat "|"
-                let msg = $"USAGE: dotnet fsi build.fsx [{switches}]"
+        let strippedArgs = 
+            fsi.CommandLineArgs 
+            |> Array.skipWhile (fun x -> x <> __SOURCE_FILE__ ) 
+            |> Array.skip 1
+            |> Array.toList
+        let taskName,taskArgs =
+            match strippedArgs with
+            | taskName :: taskArgs -> taskName, taskArgs
+            | _ -> 
+                let msg = $"Wrong args. Expected: fsi :: taskName :: taskArgs"
                 printfn "%s" msg
                 Environment.Exit -1
-            | _ -> ()
+                failwith msg
+        do
+            printfn $"Task name: {taskName}"
+            printfn $"Task args: {taskArgs}"
+        member _.IsTask(arg) =
+            let res = taskName = arg
+            printfn $"Checking task '{arg}'... {res} (taskName: '{taskName}')"
+            res
+        member _.TaskArgs = taskArgs
 
 let args = Args()
-let shallBuild = args.hasArg "build"
-let shallTest = args.hasArg "test"
-let shallPublish = args.hasArg "publish"
-let shallPack = args.hasArg "pack"
-let shallFormat = args.hasArg "format"
 
-do args.assertArgs()
+type Shell with
+    static member ExecSuccess (cmd: string, ?arg: string) =
+        let args = arg |> Option.defaultValue "" |> fun x -> [| x; yield! args.TaskArgs |] |> String.concat " "
+        printfn $"Executing command '{cmd}' with args: {args}"
+        let res = Shell.Exec(cmd, ?args = Some args)
+        if res <> 0 then failwith $"Shell execute was not successful: {res}" else ()
+
+let shallBuild = args.IsTask("build")
+let shallTest = args.IsTask("test")
+let shallPublish = args.IsTask("publish")
+let shallPack = args.IsTask("pack")
+
+let toolRestore = "toolRestore", fun () ->
+    Shell.ExecSuccess ("dotnet", "tool restore")
 
 let clean = "clean", fun () ->
     !! "src/**/bin"
@@ -63,7 +73,7 @@ let clean = "clean", fun () ->
     ++ ".pack"
     |> Shell.cleanDirs 
 
-let slnPath = "./src/FsHttp.sln"
+let slnPath = "./FsHttp.sln"
 let build = "build", fun () ->
     Shell.ExecSuccess ("dotnet", $"build {slnPath}")
 
@@ -81,9 +91,6 @@ let pack = "pack", fun () ->
         Shell.ExecSuccess ("dotnet", sprintf "pack %s -o %s -c Release" p (Path.combine __SOURCE_DIRECTORY__ ".pack"))
     )
 
-let format = "format", fun () ->
-    Shell.ExecSuccess ("dotnet", $"fantomas ./src/FsHttp/ ./src/FsHttp.Testing/ ./src/Tests/")
-
 // TODO: git tag + release
 let publish = "publish", fun () ->
     let nugetApiKey = Environment.environVar Properties.nugetPushEnvVarName
@@ -94,6 +101,7 @@ let publish = "publish", fun () ->
 
 run [
     clean
+    toolRestore
 
     if shallBuild then
         build
@@ -105,8 +113,6 @@ run [
         build
         pack
         publish
-    if shallFormat then
-        format
 ]
 
 Trace.trace $"Finished script..."

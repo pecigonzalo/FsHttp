@@ -5,6 +5,7 @@ open System.IO
 open System.Net
 open System.Text
 open System.Text.Json
+open System.Threading
 open System.Xml.Linq
 
 open FsHttp
@@ -19,30 +20,30 @@ open FsHttp.Helper
 // TODO: For all functions that serialize response content, it should be checked that content-length
 //       header is set, and if not, a "maxSerContentLength" should be used or an exception thrown.
 
-// TODO: Cancellation token passing in all content based async method calls
-
 /// Starts serializing the content stream into a buffer as a background task.
 let loadContent (response: Response) =
     response.content.LoadIntoBufferAsync() |> ignore
     response
 
-let toStreamTAsync response = response.content.ReadAsStreamAsync()
-let toStreamAsync response = toStreamTAsync response |> Async.AwaitTask
-let toStream response = (toStreamTAsync response).Result
+// TODO: The CTok passing and Async<->Task conversion is really chaotic and needs treatment.
+
+let toStreamTAsync (cancellationToken: CancellationToken) (response: Response) = 
+    response.content.ReadAsStreamAsync(cancellationToken)
+let toStreamAsync response =
+    toStreamTAsync CancellationToken.None response |> Async.AwaitTask
+let toStream response = 
+    (toStreamTAsync CancellationToken.None response).Result
 
 let parseAsync parserName parse response =
     async {
         use! contentStream = toStreamAsync response
-        use bufferingStream = new Stream.Utf8StringBufferingStream(contentStream, None)
 
         try
             let! ct = Async.CancellationToken
-            return! parse (bufferingStream :> Stream) ct
+            return! parse contentStream ct
         with ex ->
-            let errorDisplayContent = bufferingStream.GetUtf8String()
-
-            let msg =
-                $"Could not parse %s{parserName}: {ex.Message}{Environment.NewLine}Content:{Environment.NewLine}{errorDisplayContent}"
+            let! errorDisplayContent = Stream.readUtf8StringAsync 1000 contentStream
+            let msg = $"Could not parse %s{parserName}: {ex.Message}{Environment.NewLine}Content:{Environment.NewLine}{errorDisplayContent}"
 
             return raise (Exception(msg, ex))
     }
@@ -53,8 +54,12 @@ let toBytesAsync response =
         return! stream |> Stream.toBytesAsync
     }
 
-let toBytesTAsync response = toBytesAsync response |> Async.StartAsTask
-let toBytes response = toBytesAsync response |> Async.RunSynchronously
+let toBytesTAsync cancellationToken response =
+    Async.StartAsTask(
+        toBytesAsync response,
+        cancellationToken = cancellationToken)
+let toBytes response = 
+    toBytesAsync response |> Async.RunSynchronously
 
 let private toStringWithLengthAsync maxLength response =
     async {
@@ -67,25 +72,33 @@ let private toStringWithLengthAsync maxLength response =
         | Some maxLength -> return! stream |> Stream.readUtf8StringAsync maxLength
     }
 
-let toStringAsync maxLength response = toStringWithLengthAsync maxLength response
-let toStringTAsync maxLength response = toStringAsync maxLength response |> Async.StartAsTask
-let toString maxLength response = toStringAsync maxLength response |> Async.RunSynchronously
+let toStringAsync maxLength response = 
+    toStringWithLengthAsync maxLength response
+let toStringTAsync maxLength cancellationToken response = 
+    Async.StartAsTask(
+        toStringAsync maxLength response,
+        cancellationToken = cancellationToken)
+let toString maxLength response = 
+    toStringAsync maxLength response |> Async.RunSynchronously
 
-let toTextAsync response = toStringWithLengthAsync None response
-let toTextTAsync response = toTextAsync response |> Async.StartAsTask
-let toText response = toTextAsync response |> Async.RunSynchronously
+let toTextAsync response = 
+    toStringWithLengthAsync None response
+let toTextTAsync cancellationToken response = 
+    Async.StartAsTask(
+        toTextAsync response, 
+        cancellationToken = cancellationToken)
+let toText response = 
+    toTextAsync response |> Async.RunSynchronously
 
-#if NETSTANDARD2_0
-let toXmlAsync response =
-    response
-    |> parseAsync "XML" (fun stream ct -> async { return XDocument.Load(stream, LoadOptions.SetLineInfo) })
-#else
 let toXmlAsync response =
     response
     |> parseAsync "XML" (fun stream ct -> XDocument.LoadAsync(stream, LoadOptions.SetLineInfo, ct) |> Async.AwaitTask)
-#endif
-let toXmlTAsync response = toXmlAsync response |> Async.StartAsTask
-let toXml response = toXmlAsync response |> Async.RunSynchronously
+let toXmlTAsync cancellationToken response = 
+    Async.StartAsTask(
+        toXmlAsync response,
+        cancellationToken = cancellationToken)
+let toXml response = 
+    toXmlAsync response |> Async.RunSynchronously
 
 // TODO: toHtml
 
@@ -105,42 +118,86 @@ let toJsonDocumentWithAsync options response =
             |> Async.AwaitTask
         )
 
-let toJsonDocumentWithTAsync options response = toJsonDocumentWithAsync options response |> Async.StartAsTask
-let toJsonDocumentWith options response = toJsonDocumentWithAsync options response |> Async.RunSynchronously
+let toJsonDocumentWithTAsync options cancellationToken response = 
+    Async.StartAsTask(
+        toJsonDocumentWithAsync options response,
+        cancellationToken = cancellationToken)
+let toJsonDocumentWith options response = 
+    toJsonDocumentWithAsync options response |> Async.RunSynchronously
 
-let toJsonDocumentAsync response = toJsonDocumentWithAsync defaultJsonDocumentOptions response
-let toJsonDocumentTAsync response = toJsonDocumentWithTAsync defaultJsonDocumentOptions response
-let toJsonDocument response = toJsonDocumentWith defaultJsonDocumentOptions response
+let toJsonDocumentAsync response = 
+    toJsonDocumentWithAsync defaultJsonDocumentOptions response
+let toJsonDocumentTAsync cancellationToken response = 
+    toJsonDocumentWithTAsync defaultJsonDocumentOptions cancellationToken response
+let toJsonDocument response = 
+    toJsonDocumentWith defaultJsonDocumentOptions response
 
 let toJsonWithAsync options response =
     toJsonDocumentWithAsync options response
     |> Async.map (fun doc -> doc.RootElement)
 
-let toJsonWithTAsync options response = toJsonWithAsync options response |> Async.StartAsTask
-let toJsonWith options response = toJsonWithAsync options response |> Async.RunSynchronously
+let toJsonWithTAsync options cancellationToken response = 
+    Async.StartAsTask(
+        toJsonWithAsync options response,
+        cancellationToken = cancellationToken)
+let toJsonWith options response = 
+    toJsonWithAsync options response |> Async.RunSynchronously
 
-let toJsonAsync response = toJsonWithAsync defaultJsonDocumentOptions response
-let toJsonTAsync response = toJsonWithTAsync defaultJsonDocumentOptions response
-let toJson response = toJsonWith defaultJsonDocumentOptions response
+let toJsonAsync response = 
+    toJsonWithAsync defaultJsonDocumentOptions response
+let toJsonTAsync cancellationToken response = 
+    toJsonWithTAsync defaultJsonDocumentOptions cancellationToken response
+let toJson response = 
+    toJsonWith defaultJsonDocumentOptions response
 
 let toJsonSeqWithAsync options response =
     toJsonWithAsync options response
     |> Async.map (fun json -> json.EnumerateArray())
+let toJsonSeqWithTAsync options cancellationToken response = 
+    Async.StartAsTask(
+        toJsonSeqWithAsync options response,
+        cancellationToken = cancellationToken)
+let toJsonSeqWith options response = 
+    toJsonSeqWithAsync options response |> Async.RunSynchronously
 
-let toJsonSeqWithTAsync options response = toJsonSeqWithAsync options response |> Async.StartAsTask
-let toJsonSeqWith options response = toJsonSeqWithAsync options response |> Async.RunSynchronously
+let toJsonSeqAsync response = 
+    toJsonSeqWithAsync defaultJsonDocumentOptions response
+let toJsonSeqTAsync cancellationToken response = 
+    toJsonSeqWithTAsync defaultJsonDocumentOptions cancellationToken response
+let toJsonSeq response = 
+    toJsonSeqWith defaultJsonDocumentOptions response
 
-let toJsonSeqAsync response = toJsonSeqWithAsync defaultJsonDocumentOptions response
-let toJsonSeqTAsync response = toJsonSeqWithTAsync defaultJsonDocumentOptions response
-let toJsonSeq response = toJsonSeqWith defaultJsonDocumentOptions response
+let toJsonArrayWithAsync options response = 
+    toJsonSeqWithAsync options response |> Async.map Seq.toArray
+let toJsonArrayWithTAsync options cancellationToken response = 
+    Async.StartAsTask(
+        toJsonArrayWithAsync options response,
+        cancellationToken = cancellationToken)
+let toJsonArrayWith options response = 
+    toJsonArrayWithAsync options response |> Async.RunSynchronously
 
-let toJsonArrayWithAsync options response = toJsonSeqWithAsync options response |> Async.map Seq.toArray
-let toJsonArrayWithTAsync options response = toJsonArrayWithAsync options response |> Async.StartAsTask
-let toJsonArrayWith options response = toJsonArrayWithAsync options response |> Async.RunSynchronously
+let toJsonArrayAsync response = 
+    toJsonArrayWithAsync defaultJsonDocumentOptions response
+let toJsonArrayTAsync cancellationToken response =
+    toJsonArrayWithTAsync defaultJsonDocumentOptions cancellationToken response
+let toJsonArray response = 
+    toJsonArrayWith defaultJsonDocumentOptions response
 
-let toJsonArrayAsync response = toJsonArrayWithAsync defaultJsonDocumentOptions response
-let toJsonArrayTAsync response = toJsonArrayWithTAsync defaultJsonDocumentOptions response
-let toJsonArray response = toJsonArrayWith defaultJsonDocumentOptions response
+let toJsonListWithAsync options response = 
+    toJsonSeqWithAsync options response |> Async.map Seq.toList
+let toJsonListWithTAsync options cancellationToken response = 
+    Async.StartAsTask(
+        toJsonListWithAsync options response,
+        cancellationToken = cancellationToken)
+let toJsonListWith options response = 
+    toJsonListWithAsync options response |> Async.RunSynchronously
+
+let toJsonListAsync response = 
+    toJsonListWithAsync defaultJsonDocumentOptions response
+let toJsonListTAsync cancellationToken response =
+    toJsonListWithTAsync defaultJsonDocumentOptions cancellationToken response
+let toJsonList response = 
+    toJsonListWith defaultJsonDocumentOptions response
 
 let deserializeJsonWithAsync<'a> options response =
     async {
@@ -154,13 +211,19 @@ let deserializeJsonWithAsync<'a> options response =
             |> Async.AwaitTask
 
     }
+let deserializeJsonWithTAsync<'a> options cancellationToken response = 
+    Async.StartAsTask(
+        deserializeJsonWithAsync<'a> options response,
+        cancellationToken = cancellationToken)
+let deserializeJsonWith<'a> options response = 
+    deserializeJsonWithAsync<'a> options response |> Async.RunSynchronously
 
-let deserializeJsonWithTAsync<'a> options response = deserializeJsonWithAsync<'a> options response |> Async.StartAsTask
-let deserializeJsonWith<'a> options response = deserializeJsonWithAsync<'a> options response |> Async.RunSynchronously
-
-let deserializeJsonAsync<'a> response = deserializeJsonWithAsync<'a> defaultJsonSerializerOptions response
-let deserializeJsonTAsync<'a> response = deserializeJsonWithTAsync<'a> defaultJsonSerializerOptions response
-let deserializeJson<'a> response = deserializeJsonWith<'a> defaultJsonSerializerOptions response
+let deserializeJsonAsync<'a> response = 
+    deserializeJsonWithAsync<'a> defaultJsonSerializerOptions response
+let deserializeJsonTAsync<'a> cancellationToken response = 
+    deserializeJsonWithTAsync<'a> defaultJsonSerializerOptions cancellationToken response
+let deserializeJson<'a> response = 
+    deserializeJsonWith<'a> defaultJsonSerializerOptions response
 
 
 // -----------
@@ -196,8 +259,12 @@ let toFormattedTextAsync response =
             return! toTextAsync response
     }
 
-let toFormattedTextTAsync response = toFormattedTextAsync response |> Async.StartAsTask
-let toFormattedText response = toFormattedTextAsync response |> Async.RunSynchronously
+let toFormattedTextTAsync cancellationToken response = 
+    Async.StartAsTask(
+        toFormattedTextAsync response,
+        cancellationToken = cancellationToken)
+let toFormattedText response = 
+    toFormattedTextAsync response |> Async.RunSynchronously
 
 
 // -----------
@@ -216,8 +283,12 @@ let saveFileAsync (fileName: string) response =
         do! stream |> Stream.saveFileAsync fileName
     }
 
-let saveFileTAsync (fileName: string) response = saveFileAsync fileName response |> Async.StartAsTask
-let saveFile (fileName: string) response = saveFileAsync fileName response |> Async.RunSynchronously
+let saveFileTAsync (fileName: string) cancellationToken response = 
+    Async.StartAsTask(
+        saveFileAsync fileName response,
+        cancellationToken = cancellationToken)
+let saveFile (fileName: string) response = 
+    saveFileAsync fileName response |> Async.RunSynchronously
 
 
 // -----------

@@ -1,41 +1,27 @@
 module FsHttp.GlobalConfig
 
-open System
-open System.Text.Json
 open FsHttp.Domain
 
-let inline internal defaultHeadersAndBodyPrintMode () = {
-    format = true
-    maxLength = Some 7000
-}
+let mutable private mutableDefaultConfig = Defaults.defaultConfig
+let mutable private mutableDefaultPrintHint = Defaults.defaultPrintHint
 
-let mutable private mutableDefaults = {
-    timeout = None
-    printHint = {
-        requestPrintMode = HeadersAndBody(defaultHeadersAndBodyPrintMode ())
-        responsePrintMode = HeadersAndBody(defaultHeadersAndBodyPrintMode ())
-    }
-    httpMessageTransformer = id
-    httpClientHandlerTransformer = id
-    httpClientTransformer = id
-    httpClientFactory = None
-    httpCompletionOption = System.Net.Http.HttpCompletionOption.ResponseHeadersRead
-    proxy = None
-    certErrorStrategy = Default
-    bufferResponseContent = false
-}
+// This thing enables config settings like in pipe style, but for the "global" config.
+type GlobalConfigWrapper(config: Config option, printHint: PrintHint option) =
+    member _.Config = config |> Option.defaultValue mutableDefaultConfig
+    member _.PrintHint = printHint |> Option.defaultValue mutableDefaultPrintHint
 
-type GlobalConfigWrapper(config: Config option) =
-    member this.Config = config |> Option.defaultValue mutableDefaults
+    interface IUpdateConfig<GlobalConfigWrapper> with
+        member this.UpdateConfig(transformConfig) =
+            let updatedConfig = transformConfig this.Config
+            GlobalConfigWrapper(Some updatedConfig, Some this.PrintHint)
 
-    interface IConfigure<ConfigTransformer, GlobalConfigWrapper> with
-        member this.Configure(t) = GlobalConfigWrapper(Some(t this.Config))
+    interface IUpdatePrintHint<GlobalConfigWrapper> with
+        member this.UpdatePrintHint(transformPrintHint) =
+            let updatedConfig = transformPrintHint this.PrintHint
+            GlobalConfigWrapper(Some this.Config, Some updatedConfig)
 
-    interface IConfigure<PrintHintTransformer, GlobalConfigWrapper> with
-        member this.Configure(t) = Domain.configPrinter this t
-
-let defaults = GlobalConfigWrapper(None)
-let set (config: GlobalConfigWrapper) = mutableDefaults <- config.Config
+let defaults = GlobalConfigWrapper(None, None)
+let set (config: GlobalConfigWrapper) = mutableDefaultConfig <- config.Config
 
 // TODO: Do we need something like this, which is more intuitive, but doesn't
 // support the pipelined config API?
@@ -43,9 +29,7 @@ let set (config: GlobalConfigWrapper) = mutableDefaults <- config.Config
 ////    let get () = mutableDefaults
 ////    let set (config: Config) = mutableDefaults <- config
 
+// TODO: Document this
 module Json =
-    // TODO: Document this
-    let mutable defaultJsonDocumentOptions = JsonDocumentOptions()
-
-    let mutable defaultJsonSerializerOptions =
-        JsonSerializerOptions JsonSerializerDefaults.Web
+    let mutable defaultJsonDocumentOptions = Defaults.defaultJsonDocumentOptions
+    let mutable defaultJsonSerializerOptions = Defaults.defaultJsonSerializerOptions
